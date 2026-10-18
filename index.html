@@ -1,0 +1,173 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sporeling — a scroll-grown organism</title>
+<style>
+:root{--glass:rgba(8,12,20,.55);--ink:#f3f8ee;--acc:#b6ff5c;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--glass:rgba(4,6,12,.6)}}
+:root[data-theme="dark"]{--glass:rgba(4,6,12,.6)}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:#0b1018;color:var(--ink);font:16px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+section{height:100vh;display:flex;align-items:center;position:relative}
+section:nth-child(even){justify-content:flex-end}
+.p{max-width:360px;margin:0 6vw;padding:18px 20px;background:var(--glass);backdrop-filter:blur(8px);border-radius:14px;border:1px solid rgba(255,255,255,.12)}
+.p small{color:var(--acc);letter-spacing:.14em;text-transform:uppercase}
+.p h2{margin:.2em 0 .3em;font-weight:300;font-size:1.7rem}
+.p p{margin:0;opacity:.9}
+#hud{position:fixed;left:14px;top:calc(12px + env(safe-area-inset-top,0px));width:190px;font-size:12px;background:var(--glass);padding:10px 12px;border-radius:12px;pointer-events:none}
+#hud b{display:block;font-size:13px;margin-bottom:6px}
+.r{display:flex;align-items:center;gap:6px;margin:3px 0}.r i{flex:1;height:5px;background:rgba(255,255,255,.15);border-radius:3px;overflow:hidden}.r u{display:block;height:100%;background:var(--acc);width:0}
+#ui{position:fixed;right:14px;bottom:calc(14px + env(safe-area-inset-bottom,0px));display:flex;gap:8px}
+button{font:inherit;font-size:13px;color:var(--ink);background:var(--glass);border:1px solid rgba(255,255,255,.2);border-radius:20px;padding:7px 14px;cursor:pointer}
+#hint{position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);font-size:12px;opacity:.75;pointer-events:none;white-space:nowrap}
+#map{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.75);z-index:5}
+#map.on{display:flex}#map svg{width:min(94vw,860px);background:var(--glass);border-radius:14px;color:var(--ink)}
+</style></head><body>
+<canvas id="c"></canvas><main id="m"></main>
+<div id="hud"><b id="sn"></b></div>
+<div id="hint">scroll to grow · click to send a shockwave</div>
+<div id="ui"><button id="bd">Damping: ON</button><button id="bm">Map</button></div>
+<div id="map"><svg viewBox="0 0 800 400" font-size="12" fill="currentColor">
+<g stroke="currentColor" stroke-opacity=".5" fill="rgba(182,255,92,.12)"><rect x="10" y="40" width="150" height="300" rx="8"/><rect x="200" y="40" width="150" height="300" rx="8"/><rect x="390" y="40" width="170" height="300" rx="8"/><rect x="600" y="40" width="190" height="300" rx="8"/></g>
+<g font-weight="700" fill="#b6ff5c"><text x="20" y="30">1 INPUT</text><text x="210" y="30">2 SMOOTHING</text><text x="400" y="30">3 CHANGING VALUES</text><text x="610" y="30">4 VISIBLE BEHAVIOUR</text></g>
+<text x="20" y="80">scrollY / maxScroll → t</text><text x="20" y="150">click → shockwave clock</text><text x="20" y="220">pointer → parallax</text><text x="20" y="290">button → damping on/off</text>
+<text x="210" y="80">sp += (t − sp)·(1−e^(−3.5·dt))</text><text x="210" y="105">(OFF: sp = t, jumpy)</text><text x="210" y="160">p = sp drives every</text><text x="210" y="180">value below via</text><text x="210" y="200">smoothstep windows</text><text x="210" y="250">d = decay window (p&gt;.88)</text>
+<g><text x="400" y="80">uGrow  .1→.8, ×(1−d)</text><text x="400" y="105">uTwist  2→8</text><text x="400" y="130">uBulge  .35→.6</text><text x="400" y="155">uSpike  .45→.65</text><text x="400" y="180">uBloom  .6→.8</text><text x="400" y="205">uHue / uPattern</text><text x="400" y="230">uGlow, night  .6→.85</text><text x="400" y="255">uRad = 1.5 + 16·uGrow</text><text x="400" y="280">uPulseR, uPulseA (click)</text></g>
+<g><text x="610" y="80">trunk, then arms lengthen</text><text x="610" y="105">stalk spirals tighter</text><text x="610" y="130">lumps ripple up stalk</text><text x="610" y="155">spines ridge the skin</text><text x="610" y="180">tips flare into bells</text><text x="610" y="205">spots recolour, hue drifts</text><text x="610" y="230">veins glow, sky → dusk</text><text x="610" y="255">grass nearby turns colour</text><text x="610" y="280">grass ripples outward</text></g>
+<g stroke="#b6ff5c" stroke-width="2"><path d="M162 190H198M352 190H388M562 190H598"/></g>
+<text x="20" y="375" opacity=".7">Tap anywhere to close</text></svg></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const ST=[["I · Dormant seed","A ridged seed waits in the dust. Only the grass moves. Nothing is growing yet: scroll progress is still near 0."],
+["II · Germination","A pale sprout pushes up. Growth is the smoothed scroll value, run through a smoothstep window."],
+["III · Stalk","The trunk lengthens and twists. Spiral tightness (uTwist) rises with scroll, so ridges wind tighter."],
+["IV · Branching","Arms emerge one by one at staggered thresholds, each with its own phase, length and curl."],
+["V · Patterning","Lumps, spines and blotches appear. Hue drifts and the nearby grass catches the colour."],
+["VI · Bloom","Tips flare into bells and spores lift off. Light fades; the veins start to glow."],
+["VII · Return","Arms collapse in reverse order of birth and the seed re-forms. Scroll back up to regrow it."]];
+const N=ST.length,$=s=>document.querySelector(s);
+ST.forEach((s,i)=>{const e=document.createElement('section');e.innerHTML=`<div class="p"><small>Stage ${i+1} / ${N}</small><h2>${s[0].split(' · ')[1]}</h2><p>${s[1]}</p></div>`;$('#m').appendChild(e)});
+const BARS=['growth','twist','bloom','hue','glow'];
+BARS.forEach(b=>$('#hud').insertAdjacentHTML('beforeend',`<div class="r"><span style="width:44px">${b}</span><i><u id="b_${b}"></u></i></div>`));
+const hash=(x,y)=>{const h=Math.sin(x*127.1+y*311.7)*43758.5453;return h-Math.floor(h)};
+function vn(x,y){const xi=Math.floor(x),yi=Math.floor(y),xf=x-xi,yf=y-yi,u=xf*xf*(3-2*xf),v=yf*yf*(3-2*yf);return hash(xi,yi)*(1-u)*(1-v)+hash(xi+1,yi)*u*(1-v)+hash(xi,yi+1)*(1-u)*v+hash(xi+1,yi+1)*u*v}
+const fbm=(x,y)=>{let a=.5,f=1,s=0;for(let i=0;i<4;i++){s+=a*vn(x*f,y*f);f*=2;a*=.5}return s};
+const sm=(a,b,x)=>{x=Math.min(1,Math.max(0,(x-a)/(b-a)));return x*x*(3-2*x)};
+const gh=(x,z)=>{const r=Math.hypot(x,z);return (fbm(x*.08,z*.08)-.4)*3.2*sm(3,10,r)+sm(38,110,r)*(Math.pow(fbm(x*.02+9,z*.02+4),1.5)*190+20*sm(38,110,r))};
+const R=Math.random,T=THREE;
+const ren=new T.WebGLRenderer({canvas:$('#c'),antialias:true});ren.setPixelRatio(Math.min(devicePixelRatio,1.5));
+const scene=new T.Scene();scene.fog=new T.FogExp2(0x8fd0f5,.012);
+const cam=new T.PerspectiveCamera(55,1,.1,400);
+const hemi=new T.HemisphereLight(0xcfe8ff,0x5a4a30,.8),sun=new T.DirectionalLight(0xfff0d0,1.1);sun.position.set(30,50,20);scene.add(hemi,sun);
+const U={uTime:{value:0},uGrow:{value:0},uTwist:{value:2},uBulge:{value:0},uSpike:{value:0},uBloom:{value:0},uPulse:{value:0},uHue:{value:0},uGlow:{value:0},uPattern:{value:0},uWind:{value:1},uRad:{value:1.5},uPulseR:{value:0},uPulseA:{value:0},uLight:{value:1},uFogD:{value:.012},uFogCol:{value:scene.fog.color},uSun:{value:new T.Vector3(.5,.8,.3).normalize()}};
+// terrain with mountains
+const tg=new T.PlaneGeometry(260,260,150,150).rotateX(-Math.PI/2),tp=tg.attributes.position,tc=new Float32Array(tp.count*3);
+for(let i=0;i<tp.count;i++){const x=tp.getX(i),z=tp.getZ(i),y=gh(x,z);tp.setY(i,y);const n=fbm(x*.3,z*.3);
+let c=[.2+.12*n,.4+.15*n,.12];const rk=sm(6,22,y)*.9,sn=sm(48,70,y);c=c.map((v,k)=>v+(([.45,.4,.35][k])-v)*rk);c=c.map(v=>v+(.93-v)*sn);tc.set(c,i*3)}
+tg.setAttribute('color',new T.BufferAttribute(tc,3));tg.computeVertexNormals();
+scene.add(new T.Mesh(tg,new T.MeshLambertMaterial({vertexColors:true})));
+const D=new T.Object3D();
+function inst(geo,mat,n,fn){const m=new T.InstancedMesh(geo,mat,n);for(let i=0;i<n;i++){fn(i,D);D.updateMatrix();m.setMatrixAt(i,D.matrix)}m.frustumCulled=false;scene.add(m);return m}
+// shader materials
+const FOG=`vFog=1.-exp(-uFogD*uFogD*dot(mv.xyz,mv.xyz));`;
+const gv=`uniform float uTime,uGrow,uHue,uWind,uRad,uPulseR,uPulseA,uGlow,uBend,uFogD,uLight;varying vec3 vC;varying float vFog;
+void main(){float h=position.y;vec3 lp=vec3(position.x*(1.-h*.85),h,0.);
+vec3 base=(instanceMatrix*vec4(0.,0.,0.,1.)).xyz;vec3 p=(instanceMatrix*vec4(lp,1.)).xyz;
+vec3 fwd=normalize(vec3(instanceMatrix[2].x,0.,instanceMatrix[2].z));
+float w=sin(uTime*1.7+base.x*.3+base.z*.22)+.5*sin(uTime*3.3+base.x*.8-base.z*.5);
+float d=length(base.xz);vec2 dir=base.xz/(d+.001);
+float inf=1.-smoothstep(uRad-4.,uRad,d);float ring=exp(-pow((d-uPulseR)*.7,2.))*uPulseA;
+p+=fwd*h*h*uBend;p.xz+=vec2(1.,.4)*w*uWind*h*h*.4;p.xz+=dir*(h*h*inf*.6+ring*h*1.2);p.y+=ring*h*.5;
+vec3 col=mix(vec3(.03,.16,.04),vec3(.5,.78,.18),h*h+.15*sin(base.x*3.1+base.z*2.3))*uLight;
+vec3 pal=.55+.45*cos(6.2832*(vec3(0.,.33,.67)+uHue+h*.25+d*.04));
+col=mix(col,pal*(.35+.65*h)*(.5+.5*uLight),inf*.85);col+=uGlow*inf*h*h*vec3(.1,.5,.4);vC=col;
+vec4 mv=viewMatrix*vec4(p,1.);${FOG}gl_Position=projectionMatrix*mv;}`;
+const gf=`uniform vec3 uFogCol;varying vec3 vC;varying float vFog;void main(){gl_FragColor=vec4(mix(vC,uFogCol,vFog),1.);}`;
+const gmat=b=>new T.ShaderMaterial({uniforms:Object.assign({uBend:{value:b}},U),vertexShader:gv,fragmentShader:gf,side:T.DoubleSide});
+const blade=(w,s)=>new T.PlaneGeometry(w,1,1,s).translate(0,.5,0);
+inst(blade(.09,4),gmat(.25),20000,(i,d)=>{const a=R()*6.283,r=Math.pow(R(),.75)*30,x=Math.cos(a)*r,z=Math.sin(a)*r;d.position.set(x,gh(x,z),z);d.rotation.set(0,R()*6.283,0);d.scale.set(.8+R()*.8,.45+R()*.9,1)});
+inst(blade(.4,6),gmat(1.4),1300,(i,d)=>{if(i%5==0){window.cx=R()*6.283;window.cr=3.5+R()*22}const a=window.cx,x=Math.cos(a)*window.cr+R()*.4,z=Math.sin(a)*window.cr+R()*.4;d.position.set(x,gh(x,z),z);d.rotation.set(0,(i%5)*1.26+R()*.4,0);d.scale.set(1,1.2+R()*1.2,1)});
+// rocks
+const rk=inst(new T.DodecahedronGeometry(1,0),new T.MeshLambertMaterial({flatShading:true}),60,(i,d)=>{const a=R()*6.283,r=3.5+R()*28,x=Math.cos(a)*r,z=Math.sin(a)*r,s=.25+R()*R()*1.5;d.position.set(x,gh(x,z)+s*.3,z);d.rotation.set(R()*3,R()*3,R()*3);d.scale.set(s,s*.6,s*1.1)});
+for(let i=0;i<60;i++)rk.setColorAt(i,new T.Color().setHSL(.07,.18,.3+R()*.2));
+// mushrooms
+const mush=new T.InstancedMesh(new T.LatheGeometry([[0,0],[.06,0],[.05,.35],[.07,.5],[.3,.55],[.34,.7],[.22,.9],[0,1]].map(p=>new T.Vector2(p[0],p[1])),12),new T.MeshLambertMaterial({side:T.DoubleSide}),90);
+const mp=[];for(let i=0;i<90;i++){const a=R()*6.283,r=3+R()*20,x=Math.cos(a)*r,z=Math.sin(a)*r;mp.push([x,gh(x,z),z,.5+R()*1.1,R()*.3]);mush.setColorAt(i,new T.Color().setHSL(R()<.5?.97:.06,.7,.55))}
+mush.frustumCulled=false;scene.add(mush);
+// seed
+const seed=new T.Mesh(new T.IcosahedronGeometry(.35,1),new T.MeshLambertMaterial({color:0x6b4a2f,flatShading:true}));seed.position.y=.2;scene.add(seed);
+// organism
+const ov=`attribute vec4 aSeed;uniform float uTime,uGrow,uTwist,uBulge,uSpike,uBloom,uPulse,uFogD;
+varying vec3 vL,vN,vW;varying float vFog;
+void main(){float g=clamp((uGrow-aSeed.x)/.3,0.,1.);g=g*g*(3.-2.*g);float y=position.y;
+float ang=atan(position.z,position.x)+y*uTwist*(.5+aSeed.y);
+float r=aSeed.w*mix(1.,.1,pow(y,.8))*(1.+1.2*exp(-y*12.));
+r*=1.+(uBulge+uPulse*.6)*.4*sin(y*16.+uTime*1.2+aSeed.y*6.28);
+r*=1.+uSpike*.9*pow(abs(sin(ang*5.)),8.);r*=1.+uBloom*7.*smoothstep(.82,1.,y);r*=smoothstep(0.,.05,g);
+vec3 q=vec3(cos(ang)*r,y*aSeed.z*g,sin(ang)*r);
+float cf=aSeed.z>4.?.06:.35;float bend=y*y*aSeed.z*g*cf;
+q.xz+=vec2(cos(aSeed.y*9.),sin(aSeed.y*9.))*bend;
+q.x+=sin(uTime*.9+aSeed.y*6.+y*2.)*.1*bend*3.;q.z+=cos(uTime*.7+aSeed.y*5.)*.1*bend*3.;
+q.xz+=uPulse*.3*sin(uTime*14.-y*6.)*y;
+vL=vec3(cos(ang),sin(ang),0.)*1.5+vec3(0.,y*aSeed.z*.6,0.)+aSeed.y*20.;
+vN=normalize(mat3(instanceMatrix)*vec3(cos(ang),.35,sin(ang)));
+vec4 w=modelMatrix*instanceMatrix*vec4(q,1.);vW=w.xyz;vec4 mv=viewMatrix*w;${FOG}gl_Position=projectionMatrix*mv;}`;
+const of=`uniform float uTime,uHue,uGlow,uPattern,uLight;uniform vec3 uFogCol,uSun;varying vec3 vL,vN,vW;varying float vFog;
+float h3(vec3 p){return fract(sin(dot(p,vec3(127.1,311.7,74.7)))*43758.5453);}
+float n3(vec3 p){vec3 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
+return mix(mix(mix(h3(i),h3(i+vec3(1,0,0)),f.x),mix(h3(i+vec3(0,1,0)),h3(i+vec3(1,1,0)),f.x),f.y),mix(mix(h3(i+vec3(0,0,1)),h3(i+vec3(1,0,1)),f.x),mix(h3(i+vec3(0,1,1)),h3(i+vec3(1,1,1)),f.x),f.y),f.z);}
+void main(){float a=n3(vL*1.6+uTime*.05),b=n3(vL*2.4+7.),c=n3(vL*3.1+13.);
+vec3 col=vec3(.35,.8,.2);
+col=mix(col,vec3(.95,.5,.2),smoothstep(.48,.52,a)*uPattern);col=mix(col,vec3(.2,.65,.95),smoothstep(.5,.54,b)*uPattern);col=mix(col,vec3(.6,.3,.85),smoothstep(.55,.58,c)*uPattern);
+float t=uHue*6.2832,ca=cos(t),sa=sin(t);vec3 k=vec3(.57735);col=col*ca+cross(k,col)*sa+k*dot(k,col)*(1.-ca);
+vec3 n=normalize(vN);if(!gl_FrontFacing)n=-n;float d=max(dot(n,uSun),0.);
+col*=(.35+.75*d)*uLight;float rim=pow(1.-max(dot(n,normalize(cameraPosition-vW)),0.),3.);col+=rim*.25*vec3(.6,.9,1.);
+col+=uGlow*(smoothstep(.05,.0,abs(a-.5))*vec3(.3,1.,.8)*1.6+.15*c);
+gl_FragColor=vec4(mix(col,uFogCol,vFog),1.);}`;
+const og=new T.CylinderGeometry(1,1,1,40,120,true).translate(0,.5,0);
+const AS=new Float32Array(9*4);
+const org=inst(og,new T.ShaderMaterial({uniforms:U,vertexShader:ov,fragmentShader:of,side:T.DoubleSide}),9,(i,d)=>{
+const s=i?[.4+(i-1)/7*.3,R(),2.2+R()*1.6,.2+R()*.08]:[0,.3,5.2,.38];AS.set(s,i*4);
+d.position.set(0,i?1.2+R()*2.4:0,0);d.rotation.set(i?.55+R()*.5:0,i*2.4+R(),0,'YXZ');d.scale.set(1,1,1)});
+og.setAttribute('aSeed',new T.InstancedBufferAttribute(AS,4));
+// spores
+const SN=500,sp=new Float32Array(SN*3),ss=new Float32Array(SN);
+for(let i=0;i<SN;i++){const a=R()*6.283,r=R()*7;sp.set([Math.cos(a)*r,0,Math.sin(a)*r],i*3);ss[i]=R()}
+const sg=new T.BufferGeometry();sg.setAttribute('position',new T.BufferAttribute(sp,3));sg.setAttribute('aS',new T.BufferAttribute(ss,1));
+scene.add(Object.assign(new T.Points(sg,new T.ShaderMaterial({uniforms:Object.assign({uSpore:{value:0}},U),transparent:true,depthWrite:false,blending:T.AdditiveBlending,
+vertexShader:`attribute float aS;uniform float uTime,uSpore;varying float vA;void main(){vec3 p=position;p.y=mod(uTime*(.3+aS)+aS*10.,14.);p.x+=sin(uTime*.5+aS*20.+p.y*.4)*1.5;p.z+=cos(uTime*.4+aS*30.)*1.5;
+vec4 mv=viewMatrix*vec4(p,1.);vA=uSpore*(1.-p.y/14.);gl_PointSize=uSpore*(3.+9.*aS)*(30./-mv.z);gl_Position=projectionMatrix*mv;}`,
+fragmentShader:`varying float vA;void main(){float d=length(gl_PointCoord-.5);if(d>.5)discard;gl_FragColor=vec4(.7,1.,.8,(1.-d*2.)*vA);}`})),{frustumCulled:false}));
+const SP=scene.children[scene.children.length-1];
+// sky keys
+const KEYS=[[0,0x8fd0f5],[.45,0xb5e0ee],[.66,0xe8946f],[.84,0x1d1a45],[.94,0x2a3a6a],[1,0x8fd0f5]].map(k=>[k[0],new T.Color(k[1])]);
+function sky(p,o){for(let i=0;i<KEYS.length-1;i++)if(p<=KEYS[i+1][0]){o.copy(KEYS[i][1]).lerp(KEYS[i+1][1],(p-KEYS[i][0])/(KEYS[i+1][0]-KEYS[i][0]));return}}
+// input
+let target=0,spv=0,damp=true,pulseT=-1,px=0,py=0;
+const upd=()=>target=scrollY/Math.max(1,document.documentElement.scrollHeight-innerHeight);
+addEventListener('scroll',upd);upd();
+addEventListener('pointermove',e=>{px=e.clientX/innerWidth-.5;py=e.clientY/innerHeight-.5});
+addEventListener('click',e=>{if(e.target.closest('#ui,#map'))return;pulseT=0});
+$('#bd').onclick=e=>{damp=!damp;e.target.textContent='Damping: '+(damp?'ON':'OFF')};
+$('#bm').onclick=()=>$('#map').classList.add('on');$('#map').onclick=()=>$('#map').classList.remove('on');
+function rs(){ren.setSize(innerWidth,innerHeight,false);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix()}addEventListener('resize',rs);rs();
+const secs=[...document.querySelectorAll('section')],look=new T.Vector3(),clk=new T.Clock();
+function tick(){requestAnimationFrame(tick);const dt=Math.min(.05,clk.getDelta()),t=U.uTime.value+=dt;
+spv=damp?spv+(target-spv)*(1-Math.exp(-dt*3.5)):target;const p=spv,d=sm(.88,1,p);
+const grow=Math.min(1,Math.max(0,(p-.1)/.7))*(1-.88*d),night=sm(.62,.85,p)*(1-sm(.9,1,p));
+if(pulseT>=0){pulseT+=dt;U.uPulseR.value=pulseT*10;U.uPulseA.value=Math.max(0,1-pulseT/2.2);U.uPulse.value=Math.max(0,1-pulseT/1.4);if(pulseT>2.5){pulseT=-1;U.uPulseA.value=U.uPulse.value=0}}
+U.uGrow.value=grow;U.uTwist.value=2+6*sm(.2,.5,p);U.uBulge.value=sm(.35,.6,p)*(1-d*.6);U.uSpike.value=sm(.45,.65,p)*(1-d*.5);
+U.uBloom.value=sm(.6,.8,p)*(1-d);U.uHue.value=.05+p*.5;U.uPattern.value=sm(.3,.6,p);U.uGlow.value=sm(.55,.85,p)*(1-d*.6);
+U.uRad.value=1.5+16*grow;U.uWind.value=1+1.5*night;U.uLight.value=1-.65*night;SP.material.uniforms.uSpore.value=sm(.68,.82,p)*(1-sm(.93,1,p));
+sky(p,scene.fog.color);ren.setClearColor(scene.fog.color);hemi.intensity=.8-.5*night;sun.intensity=1.1-.9*night;
+const sc=1-sm(.08,.2,p)+sm(.93,1,p);seed.scale.set(sc,sc*1.3,sc);seed.visible=sc>.01;
+for(let i=0;i<90;i++){const m=mp[i],k=sm(.4+i/90*.2,.65+i/90*.2,p)*(1-d*.8)*m[3];D.position.set(m[0],m[1],m[2]);D.rotation.set(0,i,0);D.scale.set(k*.5,k,k*.5);D.updateMatrix();mush.setMatrixAt(i,D.matrix)}mush.instanceMatrix.needsUpdate=true;
+const ang=.5+p*3.4+px*.4,rad=5.5+4.5*sm(.2,.7,p)-1.5*sm(.9,1,p),x=Math.cos(ang)*rad,z=Math.sin(ang)*rad;
+cam.position.set(x,Math.max(.7+3.2*sm(.25,.7,p)-2.2*sm(.9,1,p),gh(x,z)+.5),z);
+look.set(0,.3+2.6*sm(.1,.35,p)*(1-d)-py*.8,0);cam.lookAt(look);
+secs.forEach(s=>{const r=s.getBoundingClientRect(),o=Math.min(1,Math.abs(r.top+r.height/2-innerHeight/2)/(innerHeight*.5)),e=s.firstChild;e.style.opacity=1-o;e.style.transform=`translateY(${(r.top+r.height/2-innerHeight/2)*.15}px)`});
+$('#sn').textContent=ST[Math.min(N-1,Math.floor(p*N))][0];
+[grow,(U.uTwist.value-2)/6,U.uBloom.value,U.uHue.value/.55,U.uGlow.value].forEach((v,i)=>$('#b_'+BARS[i]).style.width=Math.min(100,Math.max(0,v*100))+'%');
+ren.render(scene,cam)}
+tick();
+</script></body></html>
